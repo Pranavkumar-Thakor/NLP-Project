@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NLP Dashboard</title>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #f4f4f4, #d9e4f5);
+            text-align: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            animation: fadeIn 1s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        h1 {
+            color: #333;
+            font-size: 28px;
+            animation: slideIn 1s ease-in-out;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-50px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        hr {
+            border: 1px solid #ccc;
+        }
+        form {
+            margin: 20px 0;
+        }
+        input[type="file"], input[type="text"] {
+            width: 80%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            transition: all 0.3s ease-in-out;
+        }
+        input[type="text"]:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
+        }
+        button {
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 25px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        .upload-btn { background: linear-gradient(135deg, #28a745, #218838); }
+        .transcribe-btn { background: linear-gradient(135deg, #007bff, #0056b3); }
+        .normalize-btn { background: linear-gradient(135deg, #ff9800, #e68900); }
+        .extract-btn { background: linear-gradient(135deg, #dc3545, #c82333); }
+        .process-btn { background: linear-gradient(135deg, #17a2b8, #138496); }
+        .search-btn { background: linear-gradient(135deg, #6f42c1, #563d7c); }
+        button:hover {
+            filter: brightness(1.1);
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NLP Video Processing Dashboard</h1><hr>
+
+        <h2>1. Upload Video and Perform Following NLP Tasks :</h2>
+        <form action="/upload" method="POST" enctype="multipart/form-data">
+            <input type="file" name="file">
+            <button type="submit" class="upload-btn">Upload Video</button>
+        </form>
+        <button onclick="transcribeVideo()" class="transcribe-btn">Transcribe</button>
+        <button onclick="normalizeText()" class="normalize-btn">Normalize Text</button>
+        <button onclick="extractKeyPhrases()" class="extract-btn">Extract Key Phrases</button>
+        <button onclick="processAll()" class="process-btn">Process All Steps at Once</button>
+
+        <br>
+
+        <h2>2. Search For Topic or Phrase to Find Related Video </h2>
+        <form action="/search" method="GET">
+            <input type="text" name="query" placeholder="Search Key Phrases">
+            <button type="submit" class="search-btn">Search</button>
+        </form>
+    </div>
+
+    <video id="uploadedVideo" width="600" controls style="display:none;">
+        <source id="videoSource" src="" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+    
+    <script>
+    function showVideo(url) {
+        let videoElement = document.getElementById("uploadedVideo");
+        let videoSource = document.getElementById("videoSource");
+        videoSource.src = url;
+        videoElement.style.display = "block";
+        videoElement.load();
+    }
+    
+    document.querySelector("form[action='/upload']").onsubmit = async function (e) {
+        e.preventDefault();
+        let formData = new FormData(this);
+        let response = await fetch("/upload", { method: "POST", body: formData });
+        let result = await response.json();
+        showVideo(result.video_url);
+    };
+    
+    async function searchVideos() {
+        let query = document.querySelector("input[name='query']").value;
+        let response = await fetch(`/search?query=${query}`);
+        let result = await response.json();
+    
+        if (result.matched_videos.length > 0) {
+            showVideo(result.matched_videos[0]);  // Show first matched video
+        } else {
+            alert("No matching videos found.");
+        }
+    }
+    </script>
+    
+</body>
+</html>

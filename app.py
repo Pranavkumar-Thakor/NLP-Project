@@ -1,153 +1,124 @@
-from flask import Flask, request, render_template, jsonify
-import boto3
+from flask import Flask, render_template, request, send_from_directory
 import os
-import moviepy as mp
+import boto3
+import moviepy.editor as mp
 import whisper
-import nltk
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-import json
-
-
-nltk.download('punkt')
-nltk.download('stopwords')
+import re
 
 app = Flask(__name__)
 
 # AWS S3 Configuration
-bucket_name = "pranavkumar-thakor-1264937"
-videos_folder = "raw_videos/"
-audio_folder = "audio/"
-transcription_folder = "transcriptions/"
-normalized_folder = "normalized_text/"
-key_phrases_folder = "key_phrases/"
+S3_BUCKET = "pranavkumar-thakor-1264937"
+s3_client = boto3.client("s3")
 
-s3_client = boto3.client('s3')
+# Local storage directories
+LOCAL_VIDEO_DIR = "dashboard_videos"
+LOCAL_AUDIO_DIR = "dashboard_audios"
+LOCAL_TRANSCRIPTS_DIR = "dashboard_transcriptions"
+LOCAL_NORMALIZED_TEXT_DIR = "dashboard_normalized_text"
+LOCAL_KEY_PHRASES_DIR = "dashboard_key_phrases"
 
-def upload_to_s3(file_path, s3_key):
-    """Uploads a file to S3."""
-    s3_client.upload_file(file_path, bucket_name, s3_key)
+# Ensure directories exist
+for directory in [LOCAL_VIDEO_DIR, LOCAL_AUDIO_DIR, LOCAL_TRANSCRIPTS_DIR, LOCAL_NORMALIZED_TEXT_DIR, LOCAL_KEY_PHRASES_DIR]:
+    os.makedirs(directory, exist_ok=True)
 
-def transcribe_audio(audio_path):
-    """Transcribe audio using Whisper."""
+# Upload video
+@app.route("/upload", methods=["POST"])
+def upload_video():
+    if "file" not in request.files:
+        return "No file uploaded", 400
+    file = request.files["file"]
+    file_path = os.path.join(LOCAL_VIDEO_DIR, file.filename)
+    file.save(file_path)
+    return "Video uploaded successfully", 200
+
+# Extract audio
+@app.route("/extract_audio/<filename>")
+def extract_audio(filename):
+    video_path = os.path.join(LOCAL_VIDEO_DIR, filename)
+    audio_filename = filename.replace(".mp4", ".mp3")
+    audio_path = os.path.join(LOCAL_AUDIO_DIR, audio_filename)
+    
+    video = mp.VideoFileClip(video_path)
+    video.audio.write_audiofile(audio_path)
+    return "Audio extracted successfully", 200
+
+# Transcribe audio
+@app.route("/transcribe/<filename>")
+def transcribe(filename):
+    audio_filename = filename.replace(".mp4", ".mp3")
+    audio_path = os.path.join(LOCAL_AUDIO_DIR, audio_filename)
+    transcript_filename = filename.replace(".mp4", ".txt")
+    transcript_path = os.path.join(LOCAL_TRANSCRIPTS_DIR, transcript_filename)
+    
     model = whisper.load_model("base")
     result = model.transcribe(audio_path)
-    return result['text']
+    
+    with open(transcript_path, "w") as f:
+        f.write(result["text"])
+    
+    return "Transcription completed", 200
 
-def normalize_text(text):
-    """Remove stopwords and normalize text."""
-    tokens = word_tokenize(text.lower())
-    stop_words = set(stopwords.words('english'))
-    return ' '.join([word for word in tokens if word.isalnum() and word not in stop_words])
-
-def extract_key_phrases(text):
-    """Extract key phrases (dummy implementation)."""
-    words = word_tokenize(text)
-    return list(set(words[:10]))  # Mock extraction of key phrases
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/upload', methods=['POST'])
-def upload_video():
-    file = request.files['file']
-    if file:
-        file_path = os.path.join("uploads", file.filename)
-        file.save(file_path)
-        
-        # Upload to S3
-        s3_key = videos_folder + file.filename
-        upload_to_s3(file_path, s3_key)
-        os.remove(file_path)
-        return "Video uploaded successfully!"
-    return "Failed to upload."
-
-@app.route('/transcribe', methods=['POST'])
-def transcribe():
-    file_name = request.json['file_name']
-    video_key = videos_folder + file_name
-    audio_key = audio_folder + file_name.replace('.mp4', '.wav')
+# Normalize text
+@app.route("/normalize/<filename>")
+def normalize_text(filename):
+    transcript_filename = filename.replace(".mp4", ".txt")
+    transcript_path = os.path.join(LOCAL_TRANSCRIPTS_DIR, transcript_filename)
+    normalized_filename = filename.replace(".mp4", "_normalized.txt")
+    normalized_path = os.path.join(LOCAL_NORMALIZED_TEXT_DIR, normalized_filename)
     
-    # Download video
-    local_video = f"/tmp/{file_name}"
-    s3_client.download_file(bucket_name, video_key, local_video)
-    
-    # Convert to audio
-    clip = mp.VideoFileClip(local_video)
-    audio_path = f"/tmp/{file_name.replace('.mp4', '.wav')}"
-    clip.audio.write_audiofile(audio_path)
-    
-    # Upload audio to S3
-    upload_to_s3(audio_path, audio_key)
-    
-    # Transcribe
-    transcription = transcribe_audio(audio_path)
-    trans_s3_key = transcription_folder + file_name.replace('.mp4', '.txt')
-    with open("/tmp/transcription.txt", "w") as f:
-        f.write(transcription)
-    upload_to_s3("/tmp/transcription.txt", trans_s3_key)
-    
-    return "Transcription completed!"
-
-@app.route('/normalize', methods=['POST'])
-def normalize():
-    file_name = request.json['file_name'].replace('.mp4', '.txt')
-    s3_transcription = transcription_folder + file_name
-    local_transcription = f"/tmp/{file_name}"
-    
-    s3_client.download_file(bucket_name, s3_transcription, local_transcription)
-    
-    with open(local_transcription, "r") as f:
+    with open(transcript_path, "r") as f:
         text = f.read()
-    normalized_text = normalize_text(text)
+    normalized_text = text.lower()
+    normalized_text = re.sub(r"[^a-z0-9 ]", "", normalized_text)
     
-    # Save & Upload
-    with open("/tmp/normalized.txt", "w") as f:
+    with open(normalized_path, "w") as f:
         f.write(normalized_text)
-    upload_to_s3("/tmp/normalized.txt", normalized_folder + file_name)
-    return "Normalization complete!"
+    
+    return "Text normalization completed", 200
 
-@app.route('/extract', methods=['POST'])
-def extract():
-    file_name = request.json['file_name'].replace('.mp4', '.txt')
-    s3_transcription = transcription_folder + file_name
-    local_transcription = f"/tmp/{file_name}"
+# Extract key phrases
+@app.route("/extract_key_phrases/<filename>")
+def extract_key_phrases(filename):
+    normalized_filename = filename.replace(".mp4", "_normalized.txt")
+    normalized_path = os.path.join(LOCAL_NORMALIZED_TEXT_DIR, normalized_filename)
+    key_phrases_filename = filename.replace(".mp4", "_key_phrases.txt")
+    key_phrases_path = os.path.join(LOCAL_KEY_PHRASES_DIR, key_phrases_filename)
     
-    s3_client.download_file(bucket_name, s3_transcription, local_transcription)
-    
-    with open(local_transcription, "r") as f:
+    with open(normalized_path, "r") as f:
         text = f.read()
-    key_phrases = extract_key_phrases(text)
     
-    # Save & Upload
-    with open("/tmp/key_phrases.json", "w") as f:
-        json.dump(key_phrases, f)
-    upload_to_s3("/tmp/key_phrases.json", key_phrases_folder + file_name.replace('.txt', '.json'))
-    return "Key phrases extracted!"
+    words = text.split()
+    key_phrases = set([word for word in words if len(word) > 4])
+    
+    with open(key_phrases_path, "w") as f:
+        f.write("\n".join(key_phrases))
+    
+    return "Key phrase extraction completed", 200
 
-@app.route('/search', methods=['GET'])
+# Search functionality
+@app.route("/search", methods=["GET"])
 def search():
-    query = request.args.get('query')
+    keyword = request.args.get("query", "").lower()
+    if not keyword:
+        return "No keyword provided", 400
     
-    # List transcription files
-    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=transcription_folder)
-    if 'Contents' not in response:
-        return "No transcriptions found."
+    s3_paginator = s3_client.get_paginator("list_objects_v2")
+    s3_key_phrases_prefix = "key_phrases/"
+    matching_videos = []
     
-    for obj in response['Contents']:
-        file_key = obj['Key']
-        local_file = f"/tmp/{os.path.basename(file_key)}"
-        s3_client.download_file(bucket_name, file_key, local_file)
-        
-        with open(local_file, "r") as f:
-            text = f.read()
-        
-        if query.lower() in text.lower():
-            video_file = os.path.basename(file_key).replace('.txt', '.mp4')
-            return jsonify({"video": video_file})
+    for page in s3_paginator.paginate(Bucket=S3_BUCKET, Prefix=s3_key_phrases_prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            file_content = s3_client.get_object(Bucket=S3_BUCKET, Key=key)["Body"].read().decode("utf-8")
+            if keyword in file_content:
+                video_filename = os.path.basename(key).replace("_key_phrases.txt", ".mp4")
+                video_url = f"https://{S3_BUCKET}.s3.amazonaws.com/raw_videos/{video_filename}"
+                matching_videos.append(video_url)
     
-    return "No matching video found."
+    return {"videos": matching_videos}, 200
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+# Run Flask app
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
+

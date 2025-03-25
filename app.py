@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, send_from_directory
 import os
 import boto3
-import moviepy.editor as mp
+import moviepy as mp
 import whisper
 import re
 

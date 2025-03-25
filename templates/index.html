@@ -1,1 +1,53 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Processing Dashboard</title>
+</head>
+<body>
+    <h1>Upload and Process Videos</h1>
+    
+    <form id="upload-form" enctype="multipart/form-data">
+        <input type="file" id="file-input" name="file">
+        <button type="button" onclick="uploadVideo()">Upload</button>
+    </form>
+    
+    <h2>Search Videos</h2>
+    <input type="text" id="search-query">
+    <button onclick="searchVideos()">Search</button>
+    <div id="search-results"></div>
+
+    <script>
+        function uploadVideo() {
+            let fileInput = document.getElementById('file-input');
+            let formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.text())
+            .then(alert);
+        }
+
+        function searchVideos() {
+            let query = document.getElementById('search-query').value;
+            fetch(`/search?query=${query}`)
+            .then(response => response.json())
+            .then(data => {
+                let resultsDiv = document.getElementById('search-results');
+                resultsDiv.innerHTML = "";
+                data.videos.forEach(videoUrl => {
+                    let videoElement = document.createElement("video");
+                    videoElement.src = videoUrl;
+                    videoElement.controls = true;
+                    resultsDiv.appendChild(videoElement);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
